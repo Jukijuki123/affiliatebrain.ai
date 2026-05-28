@@ -1,5 +1,8 @@
 steps:
   # 1. Build the container image using Docker build arguments
+  #    NEXT_PUBLIC_* vars HARUS dipass saat build time karena Next.js
+  #    akan mem-bake (menyematkan) nilainya langsung ke dalam JavaScript bundle.
+  #    Tidak bisa diset di runtime environment variables Cloud Run!
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'build'
@@ -28,6 +31,7 @@ steps:
       - '$_AR_HOSTNAME/$PROJECT_ID/$_SERVICE_NAME:$COMMIT_SHA'
 
   # 3. Deploy the container image to Google Cloud Run
+  #    Hanya server-side vars yang diset di sini (tidak butuh build time).
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: 'gcloud'
     args:
@@ -40,15 +44,30 @@ steps:
       - '$_DEPLOY_REGION'
       - '--platform'
       - 'managed'
-      # Set runtime variables (server-side only variables like Gemini and Firebase Admin SDK)
+      # Server-side runtime variables (Firebase Admin SDK, Gemini)
+      # NEXT_PUBLIC_* TIDAK perlu diset di sini karena sudah di-bake saat build
       - '--set-env-vars'
-      - 'FIREBASE_ADMIN_PROJECT_ID=$PROJECT_ID,FIREBASE_ADMIN_CLIENT_EMAIL=$_FIREBASE_ADMIN_CLIENT_EMAIL,FIREBASE_ADMIN_PRIVATE_KEY=$_FIREBASE_ADMIN_PRIVATE_KEY,GEMINI_API_KEY=$_GEMINI_API_KEY,GEMINI_MODEL=$_GEMINI_MODEL'
+      - 'FIREBASE_ADMIN_PROJECT_ID=$PROJECT_ID,FIREBASE_ADMIN_CLIENT_EMAIL=$_FIREBASE_ADMIN_CLIENT_EMAIL,GEMINI_API_KEY=$_GEMINI_API_KEY,GEMINI_MODEL=$_GEMINI_MODEL'
+      # Private key dengan karakter khusus diset terpisah menggunakan --update-env-vars
+      # agar lebih aman dan tidak konflik dengan koma sebagai separator
+      - '--update-env-vars'
+      - 'FIREBASE_ADMIN_PRIVATE_KEY=$_FIREBASE_ADMIN_PRIVATE_KEY'
 
 images:
   - '$_AR_HOSTNAME/$PROJECT_ID/$_SERVICE_NAME:$COMMIT_SHA'
 
 substitutions:
-  _AR_HOSTNAME: 'asia-southeast1-docker.pkg.dev'  # Sesuaikan dengan region Artifact Registry Anda
-  _SERVICE_NAME: 'affiliatebrain'                 # Nama service Cloud Run Anda
-  _DEPLOY_REGION: 'asia-southeast1'               # Region deployment Cloud Run Anda
-  _GEMINI_MODEL: 'gemini-1.5-flash-latest'
+  _AR_HOSTNAME: 'asia-southeast1-docker.pkg.dev'
+  _SERVICE_NAME: 'affiliatebrain'
+  _DEPLOY_REGION: 'asia-southeast1'
+  _GEMINI_MODEL: 'gemini-flash-lite-latest'
+  # Variabel berikut WAJIB diisi di Cloud Build Trigger Settings > Substitution variables:
+  # _FIREBASE_API_KEY        = nilai NEXT_PUBLIC_FIREBASE_API_KEY dari .env.local
+  # _FIREBASE_AUTH_DOMAIN    = nilai NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN dari .env.local
+  # _FIREBASE_STORAGE_BUCKET = nilai NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET dari .env.local
+  # _FIREBASE_MESSAGING_SENDER_ID = nilai NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID dari .env.local
+  # _FIREBASE_APP_ID         = nilai NEXT_PUBLIC_FIREBASE_APP_ID dari .env.local
+  # _APP_URL                 = URL production Cloud Run kamu, contoh: https://affiliatebrain-xxx.run.app
+  # _FIREBASE_ADMIN_CLIENT_EMAIL = service account email
+  # _FIREBASE_ADMIN_PRIVATE_KEY  = private key (escape \n menjadi \\n)
+  # _GEMINI_API_KEY          = API key Gemini
