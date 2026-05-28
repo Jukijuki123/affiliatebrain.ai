@@ -71,3 +71,6 @@ substitutions:
   # _FIREBASE_ADMIN_CLIENT_EMAIL = service account email
   # _FIREBASE_ADMIN_PRIVATE_KEY  = private key (escape \n menjadi \\n)
   # _GEMINI_API_KEY          = API key Gemini
+  
+options:
+  logging: CLOUD_LOGGING_ONLY
