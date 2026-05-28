@@ -47,11 +47,7 @@ steps:
       # Server-side runtime variables (Firebase Admin SDK, Gemini)
       # NEXT_PUBLIC_* TIDAK perlu diset di sini karena sudah di-bake saat build
       - '--set-env-vars'
-      - 'FIREBASE_ADMIN_PROJECT_ID=$PROJECT_ID,FIREBASE_ADMIN_CLIENT_EMAIL=$_FIREBASE_ADMIN_CLIENT_EMAIL,GEMINI_API_KEY=$_GEMINI_API_KEY,GEMINI_MODEL=$_GEMINI_MODEL'
-      # Private key dengan karakter khusus diset terpisah menggunakan --update-env-vars
-      # agar lebih aman dan tidak konflik dengan koma sebagai separator
-      - '--update-env-vars'
-      - 'FIREBASE_ADMIN_PRIVATE_KEY=$_FIREBASE_ADMIN_PRIVATE_KEY'
+      - 'FIREBASE_ADMIN_PROJECT_ID=$PROJECT_ID,FIREBASE_ADMIN_CLIENT_EMAIL=$_FIREBASE_ADMIN_CLIENT_EMAIL,GEMINI_API_KEY=$_GEMINI_API_KEY,GEMINI_MODEL=$_GEMINI_MODEL,FIREBASE_ADMIN_PRIVATE_KEY=$_FIREBASE_ADMIN_PRIVATE_KEY'
 
 images:
   - '$_AR_HOSTNAME/$PROJECT_ID/$_AR_REPO/$_SERVICE_NAME:$COMMIT_SHA'
