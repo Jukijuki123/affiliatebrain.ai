@@ -57,7 +57,7 @@ images:
   - '$_AR_HOSTNAME/$PROJECT_ID/$_SERVICE_NAME:$COMMIT_SHA'
 
 substitutions:
-  _AR_HOSTNAME: 'asia-southeast1-docker.pkg.dev'
+  _AR_HOSTNAME: 'asia-southeast2-docker.pkg.dev'
   _SERVICE_NAME: 'affiliatebrain'
   _DEPLOY_REGION: 'asia-southeast1'
   _GEMINI_MODEL: 'gemini-flash-lite-latest'
