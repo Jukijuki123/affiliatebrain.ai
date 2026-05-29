@@ -1,14 +1,18 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getGenerations, deleteGeneration } from "@/lib/firestore";
+import { getGenerations, deleteGeneration, getProductIntels, deleteProductIntel } from "@/lib/firestore";
 import { auth } from "@/lib/firebase";
-import { GenerationDocument } from "@/lib/types";
+import { GenerationDocument, ProductIntelDocument } from "@/lib/types";
 import Link from "next/link";
 import { useToast } from "@/components/ui/Toast";
 
+type HistoryItem = 
+  | (GenerationDocument & { type: "generation" })
+  | (ProductIntelDocument & { type: "product-intel" });
+
 export default function HistoryPage() {
-  const [history, setHistory] = useState<GenerationDocument[]>([]);
+  const [history, setHistory] = useState<HistoryItem[]>([]);
   const [loading, setLoading] = useState(!!auth);
   const [searchQuery, setSearchQuery] = useState("");
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
@@ -17,31 +21,49 @@ export default function HistoryPage() {
 
   useEffect(() => {
     if (!auth) return;
-    // Cara paling simpel agar build lolos:
+    
     const unsubscribe = auth.onAuthStateChanged(async (user) => {
-
       if (user) {
         try {
-          const docs = await getGenerations(user.uid);
-          setHistory(docs);
+          const [gens, intels] = await Promise.all([
+            getGenerations(user.uid),
+            getProductIntels(user.uid)
+          ]);
+
+          const gensWithMeta = gens.map(g => ({ ...g, type: "generation" as const }));
+          const intelsWithMeta = intels.map(i => ({ ...i, type: "product-intel" as const }));
+
+          const combined = [...gensWithMeta, ...intelsWithMeta].sort((a, b) => {
+            const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+            const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+            return dateB - dateA;
+          });
+
+          setHistory(combined);
         } catch (err) {
           console.error("Gagal memuat riwayat", err);
+          showToast("Gagal memuat beberapa riwayat strategi.", "error");
         }
       }
       setLoading(false);
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [showToast]);
 
   const handleDelete = async (id: string) => {
     if (!auth || !auth.currentUser) return;
 
     setIsDeleting(id);
     try {
-      await deleteGeneration(auth.currentUser.uid, id);
+      const itemToDelete = history.find(item => item.id === id);
+      if (itemToDelete?.type === "product-intel") {
+        await deleteProductIntel(auth.currentUser.uid, id);
+      } else {
+        await deleteGeneration(auth.currentUser.uid, id);
+      }
       setHistory((prev) => prev.filter((item) => item.id !== id));
-      showToast("Strategi berhasil dihapus dari riwayat.", "success");
+      showToast("Riwayat strategi berhasil dihapus.", "success");
     } catch (err) {
       console.error("Gagal menghapus", err);
       showToast("Gagal menghapus strategi ini.", "error");
@@ -56,9 +78,14 @@ export default function HistoryPage() {
     showToast("Penghapusan dibatalkan.", "info");
   };
 
-  const filteredHistory = history.filter((item) =>
-    item.productName.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredHistory = history.filter((item) => {
+    const name = item.type === "product-intel" ? item.title : item.productName;
+    return name?.toLowerCase().includes(searchQuery.toLowerCase());
+  });
+
+  // Separate sections
+  const intelHistory = filteredHistory.filter(item => item.type === "product-intel") as (ProductIntelDocument & { type: "product-intel" })[];
+  const scriptHistory = filteredHistory.filter(item => item.type === "generation") as (GenerationDocument & { type: "generation" })[];
 
   const platformColors: Record<string, string> = {
     tiktok: "bg-slate-900 text-white",
@@ -89,18 +116,26 @@ export default function HistoryPage() {
       <div className="mb-10 flex flex-col md:flex-row md:items-end justify-between gap-6">
         <div>
           <h1 className="text-3xl sm:text-4xl font-extrabold font-['Montserrat'] text-[var(--color-brand-teal)] leading-tight pb-1">
-            Riwayat Strategi Konten
+            Riwayat Strategi & Analisis
           </h1>
           <p className="text-gray-500 mt-2 font-['Inter'] text-sm sm:text-base">
-            Temukan kembali 10 skrip video dan aset copywriting terakhir yang Anda buat.
+            Temukan kembali hasil analisis produk dan skrip promosi video viral yang Anda buat.
           </p>
         </div>
-        <Link
-          href="/generate"
-          className="btn-primary text-sm px-6 py-3.5 rounded-xl font-bold hover:shadow-[0_8px_24px_rgba(0,103,125,0.15)] active:scale-95 transition-all text-center min-h-[44px] shrink-0"
-        >
-          Buat Skrip Baru
-        </Link>
+        <div className="flex gap-3">
+          <Link
+            href="/product-intel"
+            className="px-5 py-3 border border-[var(--color-brand-teal)] text-[var(--color-brand-teal)] hover:bg-[var(--color-brand-teal-light)] rounded-xl font-bold transition-all text-center min-h-[44px] text-sm shrink-0 flex items-center justify-center"
+          >
+            Analisis Produk
+          </Link>
+          <Link
+            href="/generate"
+            className="btn-primary text-sm px-6 py-3.5 rounded-xl font-bold hover:shadow-[0_8px_24px_rgba(0,103,125,0.15)] active:scale-95 transition-all text-center min-h-[44px] shrink-0 flex items-center justify-center"
+          >
+            Buat Skrip Baru
+          </Link>
+        </div>
       </div>
 
       {history.length === 0 ? (
@@ -113,14 +148,22 @@ export default function HistoryPage() {
           </div>
           <h3 className="text-xl font-bold text-gray-900 mb-2 font-['Montserrat']">Kotak Masuk Riwayat Kosong</h3>
           <p className="text-gray-500 mb-8 font-['Inter'] text-sm leading-relaxed max-w-sm">
-            Anda belum pernah membuat strategi konten apa pun. Mari ketik nama produk Anda dan saksikan AI merumuskannya!
+            Anda belum pernah membuat analisis produk atau strategi skrip apa pun. Mari buat sekarang!
           </p>
-          <Link
-            href="/generate"
-            className="w-full bg-[var(--color-brand-teal)] text-white px-6 py-3.5 rounded-xl font-bold hover:shadow-[0_4px_12px_rgba(0,103,125,0.2)] active:scale-95 transition-all text-sm"
-          >
-            Mulai Buat Skrip Sekarang
-          </Link>
+          <div className="flex gap-3 w-full">
+            <Link
+              href="/product-intel"
+              className="flex-1 border border-[var(--color-brand-teal)] text-[var(--color-brand-teal)] hover:bg-[var(--color-brand-teal-light)] px-6 py-3.5 rounded-xl font-bold transition-all text-center text-sm"
+            >
+              Analisis Produk
+            </Link>
+            <Link
+              href="/generate"
+              className="flex-1 bg-[var(--color-brand-teal)] text-white px-6 py-3.5 rounded-xl font-bold hover:shadow-[0_4px_12px_rgba(0,103,125,0.2)] active:scale-95 transition-all text-center text-sm"
+            >
+              Generate Skrip
+            </Link>
+          </div>
         </div>
       ) : (
         <>
@@ -135,100 +178,195 @@ export default function HistoryPage() {
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Cari nama produk di riwayat..."
+              placeholder="Cari produk di riwayat..."
               className="w-full border border-gray-200 rounded-xl pl-12 pr-4 py-3 focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-teal)]/15 focus:border-[var(--color-brand-teal)] text-sm text-gray-900 bg-white placeholder:text-gray-400 transition-all min-h-[44px]"
             />
           </div>
 
-          {/* Grid List */}
-          {filteredHistory.length === 0 ? (
-            <div className="text-center py-12 text-gray-500 font-['Inter']">
-              Tidak ada produk yang cocok dengan pencarian &quot;<strong>{searchQuery}</strong>&quot;.
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {filteredHistory.map((doc) => {
-                const dateString = new Date(doc.createdAt).toLocaleDateString('id-ID', {
-                  day: 'numeric',
-                  month: 'short',
-                  year: 'numeric'
-                });
+          <div className="flex flex-col gap-14">
+            {/* Section 1: Product Intel */}
+            <div>
+              <div className="flex items-center gap-2 mb-6 pb-2.5 border-b border-gray-100">
+                <span className="text-xl">🧠</span>
+                <h2 className="text-xl font-extrabold font-['Montserrat'] text-gray-900">
+                  Analisis Intelijen Produk ({intelHistory.length})
+                </h2>
+              </div>
+              {intelHistory.length === 0 ? (
+                <div className="bg-slate-50/50 rounded-2xl p-8 text-center text-xs text-gray-400 font-['Inter'] border border-dashed border-gray-200">
+                  {searchQuery ? "Tidak ada riwayat analisis produk yang cocok." : "Belum ada riwayat analisis produk."}
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {intelHistory.map((doc) => {
+                    const dateString = doc.createdAt 
+                      ? new Date(doc.createdAt).toLocaleDateString('id-ID', {
+                          day: 'numeric',
+                          month: 'short',
+                          year: 'numeric'
+                        })
+                      : "-";
 
-                // Excerpt preview from hook to make it highly visual
-                const hookExcerpt = doc.output?.scripts?.[0]?.hook
-                  ? `"${doc.output.scripts[0].hook}"`
-                  : "Detail strategi dan angle viral siap pakai...";
+                    const excerpt = doc.output?.productDNA
+                      ? doc.output.productDNA.replace(/[#*`\n]/g, " ").substring(0, 140).trim() + "..."
+                      : "Detail ulasan psikologi, trigger, dan hambatan beli...";
 
-                return (
-                  <div
-                    key={doc.id}
-                    className="bg-white p-6 sm:p-7 rounded-3xl shadow-[0_4px_30px_rgba(0,103,125,0.02)] border border-gray-100 hover:border-[var(--color-brand-teal)]/30 hover:shadow-[0_8px_30px_rgba(0,103,125,0.06)] transition-all duration-300 flex flex-col justify-between gap-5 relative group"
-                  >
-                    <div className="flex flex-col gap-3">
-                      {/* Top Header Card */}
-                      <div className="flex justify-between items-start gap-4">
-                        <span className="text-[10px] font-bold px-2.5 py-0.5 bg-slate-50 border border-slate-100 text-gray-400 rounded-lg uppercase tracking-wider font-sans">
-                          {doc.category === "skincare" ? "Skincare" : doc.category === "fashion" ? "Fashion" : doc.category || "Umum"}
-                        </span>
-
-                        <div className="flex items-center gap-1.5">
-                          {doc.platforms.map(p => (
-                            <span key={p} className={`text-[9px] px-2 py-0.5 rounded font-extrabold uppercase tracking-wide font-sans ${platformColors[p] || "bg-gray-100 text-gray-600"}`}>
-                              {platformNames[p] || p}
+                    return (
+                      <div
+                        key={doc.id}
+                        className="bg-white p-6 sm:p-7 rounded-3xl shadow-[0_4px_30px_rgba(0,103,125,0.02)] border border-gray-100 hover:border-[var(--color-brand-teal)]/30 hover:shadow-[0_8px_30px_rgba(0,103,125,0.06)] transition-all duration-300 flex flex-col justify-between gap-5 relative group"
+                      >
+                        <div className="flex flex-col gap-3">
+                          <div className="flex justify-between items-start gap-4">
+                            <span className="text-[10px] font-bold px-2.5 py-0.5 bg-slate-50 border border-slate-100 text-gray-400 rounded-lg uppercase tracking-wider font-sans">
+                              {doc.category === "skincare" ? "Skincare" : doc.category === "fashion" ? "Fashion" : doc.category || "Umum"}
                             </span>
-                          ))}
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[9px] px-2 py-0.5 rounded font-extrabold uppercase tracking-wide font-sans bg-[var(--color-brand-teal)]/10 text-[var(--color-brand-teal)] border border-[var(--color-brand-teal)]/20">
+                                Intelijen Produk 🧠
+                              </span>
+                              {doc.marketplace && (
+                                <span className="text-[9px] px-2 py-0.5 rounded font-extrabold uppercase tracking-wide font-sans bg-orange-50 text-orange-600 border border-orange-100">
+                                  {doc.marketplace}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          <h3 className="font-bold text-lg text-gray-900 font-['Montserrat'] leading-tight group-hover:text-[var(--color-brand-teal)] transition-colors line-clamp-1">
+                            {doc.title}
+                          </h3>
+
+                          <p className="text-gray-400 text-xs font-['Inter'] leading-relaxed italic line-clamp-2 bg-slate-50/50 p-3 rounded-xl border border-slate-50/20">
+                            {excerpt}
+                          </p>
+                        </div>
+
+                        <div className="flex items-center justify-between border-t border-gray-100 pt-4 mt-1">
+                          <span className="text-xs text-gray-400 font-['Inter'] font-medium">
+                            {dateString}
+                          </span>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => setDeleteConfirmId(doc.id)}
+                              disabled={isDeleting === doc.id}
+                              type="button"
+                              className="p-2 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all active:scale-90 cursor-pointer min-h-[38px] flex items-center justify-center border border-transparent hover:border-rose-100"
+                              title="Hapus dari riwayat"
+                            >
+                              {isDeleting === doc.id ? (
+                                <span className="inline-block w-4 h-4 border-2 border-rose-500/40 border-t-rose-500 rounded-full animate-spin" />
+                              ) : (
+                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                              )}
+                            </button>
+                            <Link
+                              href={`/product-intel/result/${doc.id}`}
+                              className="px-4 py-2 bg-slate-50 text-gray-700 hover:bg-[var(--color-brand-teal)] hover:text-white border border-gray-200 hover:border-[var(--color-brand-teal)] text-xs font-bold rounded-xl transition-all active:scale-95 min-h-[38px] flex items-center justify-center cursor-pointer shadow-sm hover:shadow"
+                            >
+                              Lihat Hasil
+                            </Link>
+                          </div>
                         </div>
                       </div>
-
-                      {/* Main Title */}
-                      <h3 className="font-bold text-lg text-gray-900 font-['Montserrat'] leading-tight group-hover:text-[var(--color-brand-teal)] transition-colors">
-                        {doc.productName}
-                      </h3>
-
-                      {/* Excerpt preview */}
-                      <p className="text-gray-400 text-xs font-['Inter'] leading-relaxed italic line-clamp-2 bg-slate-50/50 p-3 rounded-xl border border-slate-50/20">
-                        {hookExcerpt}
-                      </p>
-                    </div>
-
-                    {/* Bottom Action Footer */}
-                    <div className="flex items-center justify-between border-t border-gray-100 pt-4 mt-1">
-                      <span className="text-xs text-gray-400 font-['Inter'] font-medium">
-                        {dateString}
-                      </span>
-
-                      <div className="flex items-center gap-2">
-                        {/* Delete Button */}
-                        <button
-                          onClick={() => setDeleteConfirmId(doc.id)}
-                          disabled={isDeleting === doc.id}
-                          type="button"
-                          className="p-2 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all active:scale-90 cursor-pointer min-h-[38px] flex items-center justify-center border border-transparent hover:border-rose-100"
-                          title="Hapus dari riwayat"
-                        >
-                          {isDeleting === doc.id ? (
-                            <span className="inline-block w-4 h-4 border-2 border-rose-500/40 border-t-rose-500 rounded-full animate-spin" />
-                          ) : (
-                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                            </svg>
-                          )}
-                        </button>
-
-                        {/* View Button */}
-                        <Link
-                          href={`/result/${doc.id}`}
-                          className="px-4 py-2 bg-slate-50 text-gray-700 hover:bg-[var(--color-brand-teal)] hover:text-white border border-gray-200 hover:border-[var(--color-brand-teal)] text-xs font-bold rounded-xl transition-all active:scale-95 min-h-[38px] flex items-center justify-center cursor-pointer shadow-sm hover:shadow"
-                        >
-                          Lihat Hasil
-                        </Link>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+                    );
+                  })}
+                </div>
+              )}
             </div>
-          )}
+
+            {/* Section 2: Script Generations */}
+            <div>
+              <div className="flex items-center gap-2 mb-6 pb-2.5 border-b border-gray-100">
+                <span className="text-xl">🎬</span>
+                <h2 className="text-xl font-extrabold font-['Montserrat'] text-gray-900">
+                  Strategi & Skrip Video Viral ({scriptHistory.length})
+                </h2>
+              </div>
+              {scriptHistory.length === 0 ? (
+                <div className="bg-slate-50/50 rounded-2xl p-8 text-center text-xs text-gray-400 font-['Inter'] border border-dashed border-gray-200">
+                  {searchQuery ? "Tidak ada riwayat skrip video yang cocok." : "Belum ada riwayat skrip video."}
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {scriptHistory.map((doc) => {
+                    const dateString = doc.createdAt 
+                      ? new Date(doc.createdAt).toLocaleDateString('id-ID', {
+                          day: 'numeric',
+                          month: 'short',
+                          year: 'numeric'
+                        })
+                      : "-";
+
+                    const excerpt = doc.output?.scripts?.[0]?.hook
+                      ? `"${doc.output.scripts[0].hook}"`
+                      : "Detail strategi dan angle viral siap pakai...";
+
+                    return (
+                      <div
+                        key={doc.id}
+                        className="bg-white p-6 sm:p-7 rounded-3xl shadow-[0_4px_30px_rgba(0,103,125,0.02)] border border-gray-100 hover:border-[var(--color-brand-teal)]/30 hover:shadow-[0_8px_30px_rgba(0,103,125,0.06)] transition-all duration-300 flex flex-col justify-between gap-5 relative group"
+                      >
+                        <div className="flex flex-col gap-3">
+                          <div className="flex justify-between items-start gap-4">
+                            <span className="text-[10px] font-bold px-2.5 py-0.5 bg-slate-50 border border-slate-100 text-gray-400 rounded-lg uppercase tracking-wider font-sans">
+                              {doc.category === "skincare" ? "Skincare" : doc.category === "fashion" ? "Fashion" : doc.category || "Umum"}
+                            </span>
+                            <div className="flex items-center gap-1.5">
+                              {doc.platforms?.map(p => (
+                                <span key={p} className={`text-[9px] px-2 py-0.5 rounded font-extrabold uppercase tracking-wide font-sans ${platformColors[p] || "bg-gray-100 text-gray-600"}`}>
+                                  {platformNames[p] || p}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+
+                          <h3 className="font-bold text-lg text-gray-900 font-['Montserrat'] leading-tight group-hover:text-[var(--color-brand-teal)] transition-colors line-clamp-1">
+                            {doc.productName}
+                          </h3>
+
+                          <p className="text-gray-400 text-xs font-['Inter'] leading-relaxed italic line-clamp-2 bg-slate-50/50 p-3 rounded-xl border border-slate-50/20">
+                            {excerpt}
+                          </p>
+                        </div>
+
+                        <div className="flex items-center justify-between border-t border-gray-100 pt-4 mt-1">
+                          <span className="text-xs text-gray-400 font-['Inter'] font-medium">
+                            {dateString}
+                          </span>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => setDeleteConfirmId(doc.id)}
+                              disabled={isDeleting === doc.id}
+                              type="button"
+                              className="p-2 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all active:scale-90 cursor-pointer min-h-[38px] flex items-center justify-center border border-transparent hover:border-rose-100"
+                              title="Hapus dari riwayat"
+                            >
+                              {isDeleting === doc.id ? (
+                                <span className="inline-block w-4 h-4 border-2 border-rose-500/40 border-t-rose-500 rounded-full animate-spin" />
+                              ) : (
+                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                              )}
+                            </button>
+                            <Link
+                              href={`/result/${doc.id}`}
+                              className="px-4 py-2 bg-slate-50 text-gray-700 hover:bg-[var(--color-brand-teal)] hover:text-white border border-gray-200 hover:border-[var(--color-brand-teal)] text-xs font-bold rounded-xl transition-all active:scale-95 min-h-[38px] flex items-center justify-center cursor-pointer shadow-sm hover:shadow"
+                            >
+                              Lihat Hasil
+                            </Link>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
         </>
       )}
       {/* Custom Confirmation Modal */}

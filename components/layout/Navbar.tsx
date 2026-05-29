@@ -20,6 +20,7 @@ export default function Navbar() {
 
   const navLinks = [
     { href: "/generate", label: "Generate" },
+    { href: "/product-intel", label: "Analisis Produk" },
     { href: "/history", label: "Riwayat" },
   ];
 

@@ -93,3 +93,45 @@ export type AudienceType =
   | "mahasiswa"
   | "pekerja_kantoran"
   | "umum";
+
+// === Product Intelligence Types ===
+
+export interface ProductIntelInput {
+  title: string;               // Nama produk
+  description: string;         // Deskripsi produk
+  category: ProductCategory;   // Reuse existing
+  price?: string;              // Cth: "Rp39.900"
+  rating?: number;             // Cth: 4.8
+  reviewKeywords?: string[];   // Cth: ["glowing", "murah", "ringan"]
+  marketplace?: string;        // Cth: "Shopee", "TikTok Shop", "Tokopedia"
+  productLink?: string;        // URL opsional
+}
+
+export interface ProductIntelOutput {
+  productDNA: string;
+  buyerPersona: string;
+  corePainPoint: string;
+  buyingTriggers: string;
+  keyBenefits: string;
+  objectionMapping: string;
+  bestContentAngles: string;
+  videoHooks: string;
+  ctaStrategy: string;
+  contentExecution: string;
+}
+
+export interface ProductIntelDocument {
+  id: string;
+  title: string;
+  description: string;
+  category: ProductCategory;
+  price: string | null;
+  rating: number | null;
+  reviewKeywords: string[];
+  marketplace: string | null;
+  productLink: string | null;
+  output: ProductIntelOutput;
+  createdAt: Date;
+  status: "success" | "error";
+  type: "product-intel"; // Untuk membedakan di Firestore dari generations biasa
+}

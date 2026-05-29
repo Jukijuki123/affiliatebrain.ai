@@ -12,7 +12,7 @@ export default function OnboardingPage() {
 
   const handleFinish = async () => {
     setIsLoading(true);
-    if (auth.currentUser) {
+    if (auth && auth.currentUser) {
       try {
         const userRef = doc(db, 'users', auth.currentUser.uid);
         await updateDoc(userRef, { onboardingDone: true });
